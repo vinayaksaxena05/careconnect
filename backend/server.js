@@ -33,6 +33,16 @@ function isOptionalColumnSchemaError(err) {
   );
 }
 
+function isOpenEmergencyStatus(status) {
+  const s = String(status || '').toLowerCase();
+  return s === 'open' || s === 'dispatched';
+}
+
+function isPendingRequestStatus(status) {
+  const s = String(status || '').toLowerCase();
+  return s === 'requested' || s === 'confirmed' || s === 'in_progress';
+}
+
 /** Admin data browser: table name → primary key + editable columns (service role updates). */
 const ADMIN_TABLES = {
   profiles: {
@@ -495,6 +505,45 @@ app.post('/api/emergency', requireAuth, async (req, res) => {
     location_lng,
   } = req.body;
   const sev = severity || 'high';
+  const now = Date.now();
+  let { data: activeRows, error: activeErr } = await supabase
+    .from('emergency_requests')
+    .select('emergency_id, status, created_at, visible_until')
+    .eq('user_id', req.user.id)
+    .in('status', ['open', 'dispatched'])
+    .order('created_at', { ascending: false });
+  if (activeErr && isOptionalColumnSchemaError(activeErr)) {
+    ({ data: activeRows, error: activeErr } = await supabase
+      .from('emergency_requests')
+      .select('emergency_id, status, created_at')
+      .eq('user_id', req.user.id)
+      .in('status', ['open', 'dispatched'])
+      .order('created_at', { ascending: false }));
+  }
+  if (activeErr) return res.status(500).json({ error: activeErr.message });
+
+  const activeEmergencyIds = (activeRows || [])
+    .filter((e) => {
+      if (!isOpenEmergencyStatus(e.status)) return false;
+      if (Object.prototype.hasOwnProperty.call(e, 'visible_until')) {
+        return e.visible_until == null || new Date(e.visible_until).getTime() > now;
+      }
+      return (
+        e.created_at != null &&
+        new Date(e.created_at).getTime() >= now - TWO_HOURS_MS
+      );
+    })
+    .map((e) => e.emergency_id);
+
+  // Keep only one active emergency at a time: resolve older active ones first.
+  if (activeEmergencyIds.length > 0) {
+    const { error: closeErr } = await supabase
+      .from('emergency_requests')
+      .update({ status: 'resolved' })
+      .in('emergency_id', activeEmergencyIds);
+    if (closeErr) return res.status(500).json({ error: closeErr.message });
+  }
+
   const row = {
     user_id: req.user.id,
     severity: sev,
@@ -611,7 +660,13 @@ app.post('/api/payments', requireAuth, async (req, res) => {
     .eq('request_id', request_id);
   if (upErr && isOptionalColumnSchemaError(upErr)) {
     const { closed_at: _c, ...noClosed } = completedPatch;
-    await supabase.from('service_requests').update(noClosed).eq('request_id', request_id);
+    const { error: fallbackErr } = await supabase
+      .from('service_requests')
+      .update(noClosed)
+      .eq('request_id', request_id);
+    if (fallbackErr) return res.status(500).json({ error: fallbackErr.message });
+  } else if (upErr) {
+    return res.status(500).json({ error: upErr.message });
   }
 
   res.status(201).json(data);
@@ -679,58 +734,83 @@ app.post('/api/feedback', requireAuth, async (req, res) => {
 /* ---------- Analytics dashboard (assignment / admin style) ---------- */
 app.get('/api/analytics/summary', requireAuth, async (req, res) => {
   const userId = req.user.id;
+  try {
+    const now = Date.now();
+    const twoHoursAgo = new Date(now - TWO_HOURS_MS).toISOString();
 
-  const { count: myOpenEmergencies } = await supabase
-    .from('emergency_requests')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .in('status', ['open', 'dispatched']);
+    let myEmergencies = [];
+    let { data: emergencyRows, error: emErr } = await supabase
+      .from('emergency_requests')
+      .select('status, visible_until, created_at')
+      .eq('user_id', userId);
+    if (emErr && isOptionalColumnSchemaError(emErr)) {
+      ({ data: emergencyRows, error: emErr } = await supabase
+        .from('emergency_requests')
+        .select('status, created_at')
+        .eq('user_id', userId));
+    }
+    if (emErr) return res.status(500).json({ error: emErr.message });
+    myEmergencies = emergencyRows || [];
 
-  const { data: myRequests } = await supabase
-    .from('service_requests')
-    .select('status, eta_minutes, request_time')
-    .eq('user_id', userId);
+    const myOpenEmergencies = myEmergencies.filter((e) => {
+      if (!isOpenEmergencyStatus(e.status)) return false;
+      if (Object.prototype.hasOwnProperty.call(e, 'visible_until')) {
+        return e.visible_until == null || new Date(e.visible_until).getTime() > now;
+      }
+      return e.created_at != null && new Date(e.created_at).getTime() >= new Date(twoHoursAgo).getTime();
+    }).length;
 
-  const totalRequests = myRequests?.length ?? 0;
-  const completed =
-    myRequests?.filter((r) => r.status === 'completed').length ?? 0;
-  const pending =
-    myRequests?.filter((r) =>
-      ['requested', 'confirmed', 'in_progress'].includes(r.status)
-    ).length ?? 0;
+    const { data: myRequests, error: reqErr } = await supabase
+      .from('service_requests')
+      .select('status, eta_minutes, request_time')
+      .eq('user_id', userId);
+    if (reqErr) return res.status(500).json({ error: reqErr.message });
 
-  const etas = (myRequests || [])
-    .map((r) => r.eta_minutes)
-    .filter((n) => n != null);
-  const avgEta =
-    etas.length > 0
-      ? Math.round(etas.reduce((a, b) => a + b, 0) / etas.length)
-      : null;
+    const totalRequests = myRequests?.length ?? 0;
+    const completed =
+      myRequests?.filter((r) => String(r.status || '').toLowerCase() === 'completed')
+        .length ?? 0;
+    const pending =
+      myRequests?.filter((r) => isPendingRequestStatus(r.status)).length ?? 0;
 
-  const { count: platformRequests } = await supabase
-    .from('service_requests')
-    .select('*', { count: 'exact', head: true });
+    const etas = (myRequests || [])
+      .filter((r) => isPendingRequestStatus(r.status))
+      .map((r) => r.eta_minutes)
+      .filter((n) => n != null);
+    const avgEta =
+      etas.length > 0
+        ? Math.round(etas.reduce((a, b) => a + b, 0) / etas.length)
+        : null;
 
-  const { count: verifiedProviders } = await supabase
-    .from('healthcare_providers')
-    .select('*', { count: 'exact', head: true })
-    .eq('verified', true);
+    const { count: platformRequests, error: pReqErr } = await supabase
+      .from('service_requests')
+      .select('*', { count: 'exact', head: true });
+    if (pReqErr) return res.status(500).json({ error: pReqErr.message });
 
-  res.json({
-    user: {
-      open_emergencies: myOpenEmergencies ?? 0,
-      total_requests: totalRequests,
-      completed_requests: completed,
-      pending_requests: pending,
-      avg_eta_minutes: avgEta,
-    },
-    platform: {
-      total_service_requests: platformRequests ?? 0,
-      verified_providers: verifiedProviders ?? 0,
-    },
-    sla_note:
-      'ETA averages support automated SLA tracking for response-time analytics.',
-  });
+    const { count: verifiedProviders, error: vErr } = await supabase
+      .from('healthcare_providers')
+      .select('*', { count: 'exact', head: true })
+      .eq('verified', true);
+    if (vErr) return res.status(500).json({ error: vErr.message });
+
+    res.json({
+      user: {
+        open_emergencies: myOpenEmergencies ?? 0,
+        total_requests: totalRequests,
+        completed_requests: completed,
+        pending_requests: pending,
+        avg_eta_minutes: avgEta,
+      },
+      platform: {
+        total_service_requests: platformRequests ?? 0,
+        verified_providers: verifiedProviders ?? 0,
+      },
+      sla_note:
+        'ETA averages are calculated from pending requests and active emergencies only.',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /* ---------- Admin (master dashboard; JWT + profiles.role = admin) ---------- */
