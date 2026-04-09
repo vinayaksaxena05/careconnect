@@ -1,4 +1,4 @@
-# CareConnect
+# CareConnect - On Demand HealthCare Service
 
 On-demand healthcare stack aligned with the **CareConnect / DA1** brief (booking, emergency dispatch, tracking, medical history) and the **normalized healthcare schema** (ten core tables, BCNF fixes, RLS).
 
