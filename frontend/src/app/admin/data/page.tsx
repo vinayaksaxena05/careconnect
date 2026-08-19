@@ -10,10 +10,14 @@ export default function AdminDataPage() {
   const [tables, setTables] = useState<string[]>([]);
   const [table, setTable] = useState<string>("");
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [selected, setSelected] = useState<Record<string, unknown> | null>(null);
   const [editJson, setEditJson] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const PAGE_SIZE = 100;
 
   const tokenRef = useCallback(async () => {
     const {
@@ -37,30 +41,38 @@ export default function AdminDataPage() {
     })();
   }, [loading, tokenRef]);
 
-  const loadRows = useCallback(async () => {
-    if (!table) return;
-    const t = await tokenRef();
-    if (!t) return;
-    setBusy(true);
-    setMsg(null);
-    try {
-      const data = await apiFetch<Record<string, unknown>[]>(
-        `/api/admin/tables/${table}/rows`,
-        t,
-      );
-      setRows(data);
-      setSelected(null);
-      setEditJson("");
-    } catch (e) {
-      setMsg((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }, [table, tokenRef]);
+  const loadRows = useCallback(
+    async (offset = 0) => {
+      if (!table) return;
+      const t = await tokenRef();
+      if (!t) return;
+      setBusy(true);
+      setMsg(null);
+      try {
+        const data = await apiFetch<{
+          rows: Record<string, unknown>[];
+          total: number;
+          offset: number;
+          limit: number;
+          has_more: boolean;
+        }>(`/api/admin/tables/${table}/rows?limit=${PAGE_SIZE}&offset=${offset}`, t);
+        setRows((prev) => (offset === 0 ? data.rows : [...prev, ...data.rows]));
+        setTotal(data.total);
+        setHasMore(data.has_more);
+        setSelected(null);
+        setEditJson("");
+      } catch (e) {
+        setMsg((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [table, tokenRef],
+  );
 
   useEffect(() => {
     if (loading || !table) return;
-    loadRows().catch((e) => setMsg((e as Error).message));
+    loadRows(0).catch((e) => setMsg((e as Error).message));
   }, [loading, table, loadRows]);
 
   const pkGuess = useMemo(() => {
@@ -97,7 +109,7 @@ export default function AdminDataPage() {
         body: JSON.stringify(body),
       });
       setMsg("Row updated.");
-      await loadRows();
+      await loadRows(0);
     } catch (e) {
       setMsg((e as Error).message);
     } finally {
@@ -139,11 +151,14 @@ export default function AdminDataPage() {
         <button
           type="button"
           disabled={busy}
-          onClick={() => loadRows()}
+          onClick={() => loadRows(0)}
           className="rounded-lg border border-amber-700/50 px-4 py-2 text-sm text-amber-200 hover:bg-amber-500/10"
         >
           Refresh
         </button>
+        <span className="text-xs text-zinc-500">
+          Showing {rows.length} of {total} rows
+        </span>
       </div>
 
       <div className="grid gap-8 lg:grid-cols-2">
@@ -180,6 +195,18 @@ export default function AdminDataPage() {
               })}
             </tbody>
           </table>
+          {hasMore && (
+            <div className="border-t border-amber-900/20 p-2 text-center">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => loadRows(rows.length)}
+                className="text-xs text-amber-300 hover:underline disabled:opacity-50"
+              >
+                Load more
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="rounded-2xl border border-amber-900/30 bg-stone-950/80 p-4">

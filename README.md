@@ -4,8 +4,8 @@ On-demand healthcare stack aligned with the **CareConnect / DA1** brief (booking
 
 ## Stacks
 
-- **Next.js** (`web/`) — dark, high-contrast UI with large tap targets
-- **Node + Express** (`backend/`) — REST API with JWT verification via Supabase Auth
+- **Next.js** (`frontend/`) — dark, high-contrast UI with large tap targets
+- **Python + FastAPI** (`backend/`) — REST API with JWT verification via Supabase Auth
 - **Supabase** — PostgreSQL, Auth, optional Realtime for live GPS (commented in migration)
 
 ## Setup
@@ -44,22 +44,31 @@ On-demand healthcare stack aligned with the **CareConnect / DA1** brief (booking
    `supabase/migrations/20250329140000_demo_patient_ambulance_seed.sql`  
    It attaches demo **service requests** (Chennai-area patient + simulated ambulance coordinates), **payments**, **prescriptions**, **ratings**, **emergencies**, and **medical records** to the **first** account in `auth.users`. Rows are tagged with `[DEMO]` so you can re-run the script safely.
 
-### 2. Backend
+### 2. Backend (FastAPI)
 
 ```bash
 cd backend
 copy .env.example .env
 # Edit .env: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
-npm install
-node server.js
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 5000
 ```
 
-API listens on `http://localhost:5000`.
+API listens on `http://localhost:5000`. Interactive docs: `http://localhost:5000/docs`.
+
+Optional scripts (from `backend/` with the venv active):
+
+```bash
+python -m scripts.migr
+python -m scripts.seed_patients
+```
 
 ### 3. Next.js frontend
 
 ```bash
-cd web
+cd frontend
 copy .env.local.example .env.local
 # Set NEXT_PUBLIC_* from Supabase; NEXT_PUBLIC_API_URL=http://localhost:5000
 npm install
@@ -70,7 +79,7 @@ Open `http://localhost:3000`.
 
 ## Features implemented
 
-- **Admin master dashboard** (`/admin`, `/admin/login`) — manage users (invite + assign admin), facilities (`healthcare_providers`), and service catalog (`service_types`). Protected by `profiles.role = 'admin'` and Node API routes under `/api/admin/*`.
+- **Admin master dashboard** (`/admin`, `/admin/login`) — manage users (invite + assign admin), facilities (`healthcare_providers`), and service catalog (`service_types`). Protected by `profiles.role = 'admin'` and FastAPI routes under `/api/admin/*`.
 - **Auth** — Supabase email/password; `profiles` row created by trigger on signup.
 - **Catalogue** — `healthcare_providers`, `service_types`, `provider_availability` (unique slot per doc).
 - **Bookings** — `service_requests` with optional GPS; pay and rate flows use `payments` and `rating_feedback` (one per request).
@@ -79,6 +88,4 @@ Open `http://localhost:3000`.
 - **Tracking** — polling API that simulates moving “ambulance” coordinates toward the patient (swap in Realtime + real GPS when ready).
 - **Analytics** — `/api/analytics/summary` for dashboard metrics.
 
-## Legacy Vite app
-
-The older `frontend/` Vite client is unchanged. Coursework and demos should use `web/` + `backend/` + Supabase as described above.
+Coursework and demos should use `frontend/` + `backend/` + Supabase as described above.
