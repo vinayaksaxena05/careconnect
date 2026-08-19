@@ -8,6 +8,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Webpack's dev build-worker child processes have been crashing
+  // ("Jest worker encountered N child process exceptions") on this
+  // machine when compiling client-only routes (e.g. /track/[requestId]
+  // with react-leaflet). Force in-process compilation instead of a
+  // separate worker pool to eliminate that failure mode.
+  experimental: {
+    webpackBuildWorker: false,
+  },
 };
 
 export default nextConfig;
