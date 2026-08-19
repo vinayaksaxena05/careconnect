@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from app.constants import ADMIN_TABLES
 from app.db import supabase
 from app.deps import AuthContext, require_admin
-from app.helpers import err_message, logger
+from app.helpers import err_message, logger, single_row
 from app.routers.emergency import sweep_expired_emergencies
 
 router = APIRouter(tags=["admin"])
@@ -254,7 +254,6 @@ def admin_set_role(
             .update({"role": next_role})
             .eq("user_id", user_id)
             .select()
-            .single()
             .execute()
         )
         _log_admin_change(
@@ -265,7 +264,7 @@ def admin_set_role(
             before={"role": target.data.get("role")},
             after={"role": next_role},
         )
-        return resp.data
+        return single_row(resp)
     except APIError as e:
         raise HTTPException(status_code=500, detail=err_message(e)) from e
 
@@ -305,10 +304,9 @@ def admin_create_provider(
                 ]
             )
             .select()
-            .single()
             .execute()
         )
-        return JSONResponse(status_code=201, content=resp.data)
+        return JSONResponse(status_code=201, content=single_row(resp))
     except APIError as e:
         raise HTTPException(status_code=400, detail=err_message(e)) from e
 
@@ -334,12 +332,12 @@ def admin_update_provider(
             .update(patch)
             .eq("provider_id", provider_id)
             .select()
-            .single()
             .execute()
         )
-        if not resp.data:
+        row = single_row(resp)
+        if not row:
             raise HTTPException(status_code=404, detail="Not found")
-        return resp.data
+        return row
     except HTTPException:
         raise
     except APIError as e:
@@ -383,10 +381,9 @@ def admin_create_service(
                 ]
             )
             .select()
-            .single()
             .execute()
         )
-        return JSONResponse(status_code=201, content=resp.data)
+        return JSONResponse(status_code=201, content=single_row(resp))
     except APIError as e:
         raise HTTPException(status_code=400, detail=err_message(e)) from e
 
@@ -410,12 +407,12 @@ def admin_update_service(
             .update(patch)
             .eq("service_id", service_id)
             .select()
-            .single()
             .execute()
         )
-        if not resp.data:
+        row = single_row(resp)
+        if not row:
             raise HTTPException(status_code=404, detail="Not found")
-        return resp.data
+        return row
     except HTTPException:
         raise
     except APIError as e:
@@ -497,10 +494,10 @@ def admin_table_patch(
             .update(allowed)
             .eq(pk, pk_val)
             .select()
-            .single()
             .execute()
         )
-        if not resp.data:
+        row = single_row(resp)
+        if not row:
             raise HTTPException(status_code=404, detail="Row not found")
         _log_admin_change(
             auth.user.id,
@@ -510,7 +507,7 @@ def admin_table_patch(
             before={k: (before_row or {}).get(k) for k in allowed},
             after={k: allowed[k] for k in allowed},
         )
-        return resp.data
+        return row
     except HTTPException:
         raise
     except APIError as e:

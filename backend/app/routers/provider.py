@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.db import supabase
 from app.deps import AuthContext, require_auth
-from app.helpers import err_message
+from app.helpers import err_message, single_row
 
 router = APIRouter(tags=["provider"])
 
@@ -91,12 +91,12 @@ def register_provider(body: ProviderRegisterBody):
                 ]
             )
             .select()
-            .single()
             .execute()
         )
+        hp_row = single_row(hp)
         return JSONResponse(
             status_code=201,
-            content={"provider_id": hp.data["provider_id"], "user_id": uid},
+            content={"provider_id": hp_row["provider_id"], "user_id": uid},
         )
     except APIError as e:
         _rollback()

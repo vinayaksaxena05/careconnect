@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.db import supabase
 from app.deps import AuthContext, require_auth
-from app.helpers import err_message
+from app.helpers import err_message, single_row
 
 router = APIRouter(tags=["profile"])
 
@@ -54,9 +54,8 @@ def update_profile(
             .update(patch)
             .eq("user_id", auth.user.id)
             .select()
-            .single()
             .execute()
         )
-        return resp.data
+        return single_row(resp)
     except APIError as e:
         raise HTTPException(status_code=500, detail=err_message(e)) from e

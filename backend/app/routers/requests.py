@@ -13,6 +13,7 @@ from app.helpers import (
     err_message,
     is_optional_column_schema_error,
     logger,
+    single_row,
     utc_now_iso,
     visible_until_iso,
 )
@@ -68,10 +69,9 @@ def create_request(
             supabase.table("service_requests")
             .insert([row])
             .select(SELECT_REQ)
-            .single()
             .execute()
         )
-        return JSONResponse(status_code=201, content=resp.data)
+        return JSONResponse(status_code=201, content=single_row(resp))
     except APIError as e:
         if is_optional_column_schema_error(e):
             minimal = {
@@ -84,10 +84,9 @@ def create_request(
                     supabase.table("service_requests")
                     .insert([minimal])
                     .select(SELECT_REQ)
-                    .single()
                     .execute()
                 )
-                return JSONResponse(status_code=201, content=resp.data)
+                return JSONResponse(status_code=201, content=single_row(resp))
             except APIError as e2:
                 logger.error("insert request failed (minimal payload): %s", e2)
                 raise HTTPException(status_code=500, detail=err_message(e2)) from e2
@@ -291,9 +290,8 @@ def update_status(
             .update({"status": next_status, "updated_at": utc_now_iso()})
             .eq("request_id", request_id)
             .select()
-            .single()
             .execute()
         )
-        return resp.data
+        return single_row(resp)
     except APIError as e:
         raise HTTPException(status_code=500, detail=err_message(e)) from e

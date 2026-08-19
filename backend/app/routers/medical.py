@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.db import supabase
 from app.deps import AuthContext, require_auth
-from app.helpers import err_message
+from app.helpers import err_message, single_row
 
 router = APIRouter(tags=["medical-records"])
 
@@ -55,9 +55,8 @@ def create_record(
                 ]
             )
             .select()
-            .single()
             .execute()
         )
-        return JSONResponse(status_code=201, content=resp.data)
+        return JSONResponse(status_code=201, content=single_row(resp))
     except APIError as e:
         raise HTTPException(status_code=500, detail=err_message(e)) from e

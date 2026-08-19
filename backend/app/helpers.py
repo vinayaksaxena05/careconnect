@@ -79,3 +79,17 @@ def err_message(err: Exception) -> str:
 
 def round1(n: float) -> float:
     return math.floor(n * 10 + 0.5) / 10
+
+
+def single_row(resp) -> dict | None:
+    """Extract one row from a postgrest response after insert/update/select.
+
+    postgrest-py's `.single()` only exists on the read-only select builder,
+    not after `.insert()`/`.update()` (unlike the JS client, where it does).
+    Callers instead do `.insert(...).select(...)` / `.update(...).select()`
+    without `.single()` and pass the `execute()` result through here.
+    """
+    data = resp.data
+    if isinstance(data, list):
+        return data[0] if data else None
+    return data

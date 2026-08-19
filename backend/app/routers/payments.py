@@ -11,6 +11,7 @@ from app.helpers import (
     api_error_code,
     err_message,
     is_optional_column_schema_error,
+    single_row,
     utc_now_iso,
 )
 
@@ -98,7 +99,6 @@ def create_payment(
                 ]
             )
             .select()
-            .single()
             .execute()
         )
     except APIError as e:
@@ -131,7 +131,7 @@ def create_payment(
         else:
             raise HTTPException(status_code=500, detail=err_message(up_err)) from up_err
 
-    return JSONResponse(status_code=201, content=resp.data)
+    return JSONResponse(status_code=201, content=single_row(resp))
 
 
 @router.post("/api/prescriptions")
@@ -159,10 +159,9 @@ def create_prescription(
                 ]
             )
             .select()
-            .single()
             .execute()
         )
-        return JSONResponse(status_code=201, content=resp.data)
+        return JSONResponse(status_code=201, content=single_row(resp))
     except APIError as e:
         if api_error_code(e) == "23505":
             raise HTTPException(
@@ -196,10 +195,9 @@ def create_feedback(
                 ]
             )
             .select()
-            .single()
             .execute()
         )
-        return JSONResponse(status_code=201, content=resp.data)
+        return JSONResponse(status_code=201, content=single_row(resp))
     except APIError as e:
         if api_error_code(e) == "23505":
             raise HTTPException(

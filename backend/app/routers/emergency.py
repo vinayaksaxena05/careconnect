@@ -15,6 +15,7 @@ from app.helpers import (
     is_open_emergency_status,
     is_optional_column_schema_error,
     is_row_visible,
+    single_row,
     visible_until_iso,
 )
 
@@ -108,10 +109,9 @@ def create_emergency(
             supabase.table("emergency_requests")
             .insert([row])
             .select()
-            .single()
             .execute()
         )
-        return JSONResponse(status_code=201, content=resp.data)
+        return JSONResponse(status_code=201, content=single_row(resp))
     except APIError as e:
         if is_optional_column_schema_error(e):
             minimal = {k: v for k, v in row.items() if k != "visible_until"}
@@ -120,10 +120,9 @@ def create_emergency(
                     supabase.table("emergency_requests")
                     .insert([minimal])
                     .select()
-                    .single()
                     .execute()
                 )
-                return JSONResponse(status_code=201, content=resp.data)
+                return JSONResponse(status_code=201, content=single_row(resp))
             except APIError as e2:
                 raise HTTPException(status_code=500, detail=err_message(e2)) from e2
         raise HTTPException(status_code=500, detail=err_message(e)) from e
