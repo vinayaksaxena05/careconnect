@@ -45,7 +45,7 @@ export default function ProviderRegisterPage() {
         onSubmit={onSubmit}
         className="mt-8 flex flex-col gap-4 rounded-2xl border border-[var(--cc-border)] bg-[var(--cc-surface)] p-8"
       >
-        {[
+        {([
           ["full_name", "Full name", "text", true],
           ["email", "Work email", "email", true],
           ["password", "Password (min 6)", "password", true],
@@ -53,7 +53,7 @@ export default function ProviderRegisterPage() {
           ["address", "Practice address", "text", false],
           ["specialization", "Specialization", "text", true],
           ["license_number", "License / registration number", "text", true],
-        ].map(([key, label, type, req]) => (
+        ] as const).map(([key, label, type, req]) => (
           <label key={key} className="flex flex-col gap-1">
             <span className="text-sm text-[var(--cc-muted)]">{label}</span>
             <input

@@ -1,0 +1,1294 @@
+<title>The ESI Triage Model</title>
+<meta name="description" content="Technical report on CareConnect's triage_model_v1: an XGBoost + free-text model that suggests an Emergency Severity Index acuity as clinician decision support.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:      #f1f4f5;
+    --surface:     #ffffff;
+    --surface-2:   #e9eef0;
+    --ink:         #16222b;
+    --ink-soft:    #33454f;
+    --muted:       #5c6d78;
+    --border:      #d8dfe3;
+    --border-firm: #c3ccd1;
+    --accent:      #0f6d68;
+    --accent-ink:  #0b4b47;
+    --caution:     #b23b2e;
+    --caution-bg:  #f8ebe8;
+    --sA:          #2563eb;
+    --sB:          #d97706;
+    --heat:        #0f6d68;
+    --esi1:#b3241f; --esi2:#c96a15; --esi3:#a9850f; --esi4:#3f8f5f; --esi5:#35708f;
+    --shadow: 0 1px 2px rgba(16,34,43,.06), 0 8px 24px -12px rgba(16,34,43,.18);
+
+    --measure: 68ch;
+    --serif: "Spectral", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0e1417;
+      --surface:   #151d22;
+      --surface-2: #1b262c;
+      --ink:       #e6edf1;
+      --ink-soft:  #c5d0d6;
+      --muted:     #90a1ab;
+      --border:    #27343c;
+      --border-firm:#33434c;
+      --accent:    #43b8af;
+      --accent-ink:#8fd6cf;
+      --caution:   #f0917f;
+      --caution-bg:#2b1a17;
+      --sA:        #3b82f6;
+      --sB:        #c27a0e;
+      --heat:      #4fc4bb;
+      --esi1:#e06b63; --esi2:#e0902f; --esi3:#d8b53c; --esi4:#5fb083; --esi5:#5aa7c6;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:    #0e1417;
+    --surface:   #151d22;
+    --surface-2: #1b262c;
+    --ink:       #e6edf1;
+    --ink-soft:  #c5d0d6;
+    --muted:     #90a1ab;
+    --border:    #27343c;
+    --border-firm:#33434c;
+    --accent:    #43b8af;
+    --accent-ink:#8fd6cf;
+    --caution:   #f0917f;
+    --caution-bg:#2b1a17;
+    --sA:        #3b82f6;
+    --sB:        #c27a0e;
+    --heat:      #4fc4bb;
+    --esi1:#e06b63; --esi2:#e0902f; --esi3:#d8b53c; --esi4:#5fb083; --esi5:#5aa7c6;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 1.68;
+    margin: 0;
+    font-feature-settings: "onum" 1, "pnum" 1;
+  }
+  @media (max-width: 640px) { body { font-size: 16.5px; } }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 8rem; }
+
+  /* ---------- masthead ---------- */
+  header.masthead {
+    padding: 4.5rem 0 2rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 0;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 1.4rem;
+  }
+  h1.title {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 5.4vw, 3.4rem);
+    line-height: 1.08;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+    margin: 0 0 1rem;
+    max-width: 20ch;
+  }
+  .standfirst {
+    font-size: 1.16rem;
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0 0 2rem;
+    font-weight: 300;
+  }
+  .byline {
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem 1.6rem;
+    border-top: 1px solid var(--border);
+    padding-top: 1.1rem;
+  }
+  .byline b { color: var(--ink); font-weight: 500; }
+
+  .disclaimer {
+    margin: 1.6rem 0 0;
+    padding: .9rem 1.1rem;
+    border: 1px solid var(--caution);
+    border-left-width: 4px;
+    border-radius: 3px;
+    background: var(--caution-bg);
+    color: var(--ink);
+    font-size: .92rem;
+    line-height: 1.55;
+  }
+  .disclaimer b { color: var(--caution); }
+
+  /* ---------- body grid with section rail ---------- */
+  .paper {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  @media (min-width: 1000px) {
+    .paper { grid-template-columns: 4.5rem minmax(0, 1fr); column-gap: 2.5rem; }
+  }
+
+  section.sec {
+    display: contents;
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: .82rem;
+    color: var(--accent-ink);
+    font-weight: 500;
+    padding-top: 3.4rem;
+  }
+  @media (max-width: 999px) {
+    .sec-num { padding-top: 2.6rem; }
+  }
+  .sec-body {
+    min-width: 0;
+    padding-top: 2.4rem;
+    max-width: var(--measure);
+  }
+  @media (min-width: 1000px) {
+    .sec-body { padding-top: 3.4rem; }
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.62rem;
+    line-height: 1.18;
+    letter-spacing: -.01em;
+    text-wrap: balance;
+    margin: 0 0 1rem;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.12rem;
+    margin: 2rem 0 .6rem;
+  }
+  p { margin: 0 0 1.05rem; }
+  a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+  a:hover { text-decoration-thickness: 2px; }
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  ul, ol { margin: 0 0 1.1rem; padding-left: 1.3rem; }
+  li { margin: .3rem 0; }
+  li::marker { color: var(--muted); }
+
+  code {
+    font-family: var(--mono);
+    font-size: .84em;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: .08em .38em;
+  }
+
+  .lede {
+    font-size: 1.06rem;
+    color: var(--ink-soft);
+  }
+
+  /* ---------- abstract ---------- */
+  .abstract {
+    max-width: var(--measure);
+    padding-top: 2.6rem;
+  }
+  @media (min-width: 1000px) { .abstract { grid-column: 2; padding-top: 3rem; } }
+  .abstract .box {
+    background: var(--surface);
+    border: 1px solid var(--border-firm);
+    border-radius: 4px;
+    padding: 1.6rem 1.7rem;
+    box-shadow: var(--shadow);
+  }
+  .abstract h2 {
+    font-size: .78rem;
+    font-family: var(--mono);
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: .8rem;
+  }
+  .abstract p { font-size: .98rem; margin-bottom: .8rem; }
+  .abstract p:last-child { margin-bottom: 0; }
+
+  /* ---------- figures ---------- */
+  figure {
+    margin: 2rem 0;
+    max-width: 960px;
+  }
+  @media (min-width: 1000px) {
+    .sec-body figure { width: calc(100% + 4.5rem); margin-left: -4.5rem; }
+    .sec-body figure.tight { width: 100%; margin-left: 0; }
+  }
+  .figframe {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.4rem 1.4rem 1rem;
+    overflow-x: auto;
+  }
+  figure svg { display: block; max-width: 100%; height: auto; color: var(--ink-soft); }
+  figcaption {
+    font-family: var(--mono);
+    font-size: .76rem;
+    line-height: 1.5;
+    color: var(--muted);
+    margin-top: .8rem;
+    padding-left: .1rem;
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 500; }
+
+  .fig-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem 1.2rem;
+    font-family: var(--mono);
+    font-size: .74rem;
+    color: var(--muted);
+    margin-top: .7rem;
+  }
+  .fig-legend span { display: inline-flex; align-items: center; gap: .4rem; }
+  .sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; margin: 1.6rem 0; border: 1px solid var(--border); border-radius: 4px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--mono);
+    font-size: .8rem;
+    font-variant-numeric: tabular-nums;
+  }
+  caption {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: .74rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: .8rem 1rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  th, td { padding: .55rem .9rem; text-align: right; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { color: var(--muted); font-weight: 500; background: var(--surface); border-bottom: 1px solid var(--border-firm); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.hi td { background: var(--surface-2); color: var(--ink); }
+  td.warn { color: var(--caution); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- callout ---------- */
+  .note {
+    border: 1px solid var(--border-firm);
+    border-left: 4px solid var(--accent);
+    background: var(--surface);
+    border-radius: 3px;
+    padding: 1rem 1.2rem;
+    margin: 1.6rem 0;
+    font-size: .95rem;
+    max-width: var(--measure);
+  }
+  .note .lbl {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    display: block;
+    margin-bottom: .35rem;
+  }
+  .note.care { border-left-color: var(--caution); }
+  .note.care .lbl { color: var(--caution); }
+
+  /* ---------- ESI scale strip ---------- */
+  .esistrip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; margin: 1.4rem 0; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+  .esistrip div { padding: .7rem .6rem; font-family: var(--mono); font-size: .72rem; color: #fff; }
+  .esistrip .n { font-size: 1rem; font-weight: 600; display: block; }
+  .esistrip .e1 { background: var(--esi1); } .esistrip .e2 { background: var(--esi2); }
+  .esistrip .e3 { background: var(--esi3); } .esistrip .e4 { background: var(--esi4); }
+  .esistrip .e5 { background: var(--esi5); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .esistrip div { color: #0e1417; } }
+  :root[data-theme="dark"] .esistrip div { color: #0e1417; }
+
+  /* ---------- refs ---------- */
+  .refs { max-width: var(--measure); font-size: .88rem; }
+  @media (min-width: 1000px) { .refs { grid-column: 2; } }
+  .refs ol { padding-left: 1.4rem; }
+  .refs li { margin: .5rem 0; color: var(--ink-soft); }
+
+  footer.foot {
+    margin-top: 4rem;
+    border-top: 2px solid var(--ink);
+    padding-top: 1.4rem;
+    font-family: var(--mono);
+    font-size: .74rem;
+    color: var(--muted);
+    max-width: var(--measure);
+  }
+  @media (min-width: 1000px) { footer.foot { grid-column: 2; } }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="kicker">CareConnect · Clinical ML · Technical Report</p>
+    <h1 class="title">Predicting Emergency Severity Index acuity as triage decision support</h1>
+    <p class="standfirst">
+      <code>triage_model_v1</code> takes the eleven things a nurse records at the initial
+      emergency triage assessment and returns a suggested ESI acuity of 1&ndash;5, with a
+      calibrated-in explanation and a permanent seat behind a human reviewer. This report
+      describes the data, the model, the selection procedure, the measured behaviour, and
+      the engineering choices that keep the prediction subordinate to clinical judgement.
+    </p>
+    <div class="byline">
+      <span><b>System</b> CareConnect emergency module</span>
+      <span><b>Artifact</b> triage_model_v1 · xgboost</span>
+      <span><b>Trained</b> 2026-09-03</span>
+      <span><b>Target</b> ESI acuity (multiclass, 1&ndash;5)</span>
+    </div>
+    <p class="disclaimer">
+      <b>Read this first.</b> The shipped <code>triage_model_v1</code> is trained on a
+      <em>synthetic</em> dataset. Every number in this report characterises a pipeline, not a
+      clinical instrument. The model is decision <em>support</em>: it never sets a triage level,
+      and a clinician reviews and can override every prediction.
+    </p>
+  </header>
+
+  <div class="paper">
+
+    <div class="abstract">
+      <div class="box">
+        <h2>Abstract</h2>
+        <p>
+          Emergency-department triage assigns each arrival an Emergency Severity Index (ESI)
+          acuity from 1 (resuscitation) to 5 (non-urgent). We frame acuity assignment as a
+          five-class prediction problem constrained to information available <em>at the moment
+          of triage</em> &mdash; demographics, arrival mode, the first set of vital signs, a
+          pain score, and the free-text chief complaint &mdash; with a documented per-column
+          leakage policy that excludes everything recorded after the triage decision.
+        </p>
+        <p>
+          A four-family model zoo (logistic regression, decision tree, random forest, XGBoost),
+          each evaluated with and without a TF&#8209;IDF representation of the chief complaint,
+          is compared on a held-out validation split using macro&#8209;F1 with a
+          high&#8209;acuity&#8209;recall tie&#8209;break. XGBoost with free text wins
+          (validation macro&#8209;F1 0.709) and is refit on train&nbsp;+&nbsp;val and scored
+          once on an untouched test split: accuracy 0.793, macro&#8209;F1 0.738, and
+          &mdash; the number that matters &mdash; recall 0.846 / precision 0.943 on the
+          combined ESI&nbsp;1&ndash;2 &ldquo;must not miss&rdquo; group.
+        </p>
+        <p>
+          The contribution is less a model than a discipline: the entire inference path
+          (feature engineering, imputation, encoding, text vectorisation, estimator) is
+          serialised as one object so training and serving cannot diverge; a single config
+          module is the shared contract for preprocessing, the API schema, and the UI; a
+          transparent rule-based predictor stands behind the model on the same response
+          contract so the endpoint degrades instead of failing; and model output and human
+          decision are stored side by side, the model columns immutable.
+        </p>
+      </div>
+    </div>
+
+    <!-- 1 -->
+    <section class="sec">
+      <div class="sec-num">§1</div>
+      <div class="sec-body">
+        <h2>Background: what triage has to decide, in under five minutes</h2>
+        <p class="lede">
+          Every patient who walks or is wheeled into an emergency department is sorted before
+          they are treated. The dominant instrument in North American EDs is the
+          <strong>Emergency Severity Index</strong>, a five-level scale that blends
+          <em>how sick</em> with <em>how many resources</em> the patient is likely to need.
+        </p>
+        <div class="esistrip" role="img" aria-label="ESI scale, level 1 resuscitation to level 5 non-urgent">
+          <div class="e1"><span class="n">1</span>Resuscitation</div>
+          <div class="e2"><span class="n">2</span>Emergent</div>
+          <div class="e3"><span class="n">3</span>Urgent</div>
+          <div class="e4"><span class="n">4</span>Less&nbsp;Urgent</div>
+          <div class="e5"><span class="n">5</span>Non&#8209;Urgent</div>
+        </div>
+        <p>
+          The assignment is fast, high-consequence, and known to vary between nurses and
+          shifts, especially in the crowded middle of the scale. That makes triage a
+          textbook case for <em>decision support</em>: a second opinion computed from the
+          same inputs, surfaced at the same moment, that a clinician can take or leave.
+          It is emphatically <em>not</em> a case for automation &mdash; a wrong ESI entered
+          silently is a patient in the wrong queue.
+        </p>
+        <p>
+          <code>triage_model_v1</code> is built for that narrow role. It reproduces the
+          nurse&rsquo;s inputs, predicts the acuity a nurse would assign, shows why, and
+          hands the decision back. Nothing downstream in CareConnect reads the model&rsquo;s
+          number; only a human&rsquo;s recorded ESI moves a patient.
+        </p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="sec">
+      <div class="sec-num">§2</div>
+      <div class="sec-body">
+        <h2>Problem definition and the leakage horizon</h2>
+        <p>
+          The prediction target is <code>esi &isin; {1,2,3,4,5}</code>, the acuity a triage
+          nurse assigned (<code>triage.acuity</code> in MIMIC&#8209;IV&#8209;ED). Classes are
+          <strong>not collapsed</strong>: a model that folds 1&ndash;2 together cannot tell a
+          resuscitation from an emergency. Instead, ESI&nbsp;1&ndash;2 is carried through
+          evaluation as a separate one-vs-rest &ldquo;high acuity&rdquo; problem, because
+          missing those patients is the costliest error the model can make.
+        </p>
+        <p>
+          Every feature must be knowable <em>before</em> the triage decision. The single
+          hardest discipline in a clinical prediction is refusing the features that quietly
+          encode the outcome &mdash; diagnosis, disposition, ICU transfer, mortality, length
+          of stay, medications given, later vitals and notes. All of these live on the wrong
+          side of the line below and are never read from any table.
+        </p>
+
+        <figure class="tight">
+          <div class="figframe">
+            <svg viewBox="0 0 880 250" role="img" aria-label="A timeline with the triage moment marked; input features sit before it, excluded outcomes after it.">
+              <!-- axis -->
+              <line x1="40" y1="140" x2="840" y2="140" stroke="currentColor" stroke-width="2"/>
+              <polygon points="840,140 830,135 830,145" fill="currentColor"/>
+              <line x1="440" y1="60" x2="440" y2="200" stroke="var(--accent)" stroke-width="2.5"/>
+              <text x="440" y="48" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--accent-ink)" font-weight="600">TRIAGE DECISION</text>
+              <text x="828" y="163" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">time in the ED &rarr;</text>
+
+              <!-- available -->
+              <text x="60" y="90" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" font-weight="600">KNOWN AT TRIAGE &mdash; used</text>
+              <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--ink-soft)">
+                <text x="60" y="112">age · sex · arrival transport</text>
+                <text x="60" y="130">HR · RR · SBP · DBP · SpO&#8322; · temp</text>
+                <text x="60" y="188">pain score · chief complaint (free text)</text>
+              </g>
+              <line x1="52" y1="98" x2="52" y2="196" stroke="var(--sA)" stroke-width="3"/>
+
+              <!-- excluded -->
+              <text x="470" y="90" font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--caution)" font-weight="600">RECORDED LATER &mdash; excluded (would leak)</text>
+              <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--muted)">
+                <text x="470" y="112">diagnosis / ICD codes · disposition</text>
+                <text x="470" y="130">ICU admission · mortality · length of stay</text>
+                <text x="470" y="188">meds dispensed · repeat vitals · later labs &amp; notes</text>
+              </g>
+              <line x1="462" y1="98" x2="462" y2="196" stroke="var(--caution)" stroke-width="3" stroke-dasharray="4 3"/>
+            </svg>
+          </div>
+          <figcaption>
+            <b>Figure 1. The leakage horizon.</b> Features are drawn only from the arrival
+            columns of <code>edstays</code> and the single <code>triage</code> observation row.
+            The train / validation / test split is made <b>before</b> any statistic is fit, and
+            every fitted quantity (imputer medians, scaler moments, one-hot categories, TF&#8209;IDF
+            vocabulary) is learned on the training split alone and baked into the artifact.
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="sec">
+      <div class="sec-num">§3</div>
+      <div class="sec-body">
+        <h2>Data: a credentialed target and a synthetic stand-in</h2>
+        <p>
+          The intended training corpus is <strong>MIMIC&#8209;IV&#8209;ED</strong> (PhysioNet),
+          joining the <code>edstays</code> arrival record to the <code>triage</code>
+          observation row, with the optional <code>patients</code> table supplying
+          <code>age</code>. MIMIC is credentialed and never enters the repository; the loader
+          (<code>ml/data/mimic.py</code>) is complete and unit-tested but unexercised here.
+        </p>
+        <p>
+          So the pipeline can run end to end &mdash; and the API can serve a real model &mdash;
+          <code>triage_model_v1</code> is trained on a <strong>reproducible synthetic
+          dataset</strong> with the identical schema and column semantics. The generator
+          (<code>ml/data/synthetic.py</code>) is a transparent hand-built scorecard: a latent
+          severity band is sampled (ESI&nbsp;3 dominates, ESI&nbsp;1 is rare, matching real EDs);
+          vitals are drawn from band-conditioned normals; a chief complaint is drawn from a
+          band-appropriate phrase list with 12&nbsp;% cross-contamination so text carries real
+          but imperfect signal; ESI is then assigned from a blend of vital-sign danger,
+          complaint red-flags, an age term, and irreducible noise. Realistic missingness is
+          injected into temperature, respiratory rate, diastolic BP, pain, and SpO&#8322;.
+        </p>
+        <div class="note care">
+          <span class="lbl">Consequence</span>
+          Synthetic data is <strong>not clinically valid</strong>. It exercises and demonstrates
+          the machinery; it says nothing about how the model would triage a real patient. A
+          MIMIC-trained <code>v2</code> would differ, most visibly on ESI&nbsp;4.
+        </div>
+        <div class="tablewrap">
+          <table>
+            <caption>Dataset &amp; split &mdash; triage_model_v1</caption>
+            <thead>
+              <tr><th>Stage</th><th>Rows</th><th>Purpose</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Synthetic draw</td><td>12,000</td><td>seed 42, stratified</td></tr>
+              <tr><td>Train</td><td>7,200</td><td>fit preprocessing + estimators</td></tr>
+              <tr><td>Validation</td><td>2,400</td><td>model &amp; text selection</td></tr>
+              <tr><td>Test</td><td>2,400</td><td>scored once, after selection</td></tr>
+              <tr class="hi"><td>Refit for shipping</td><td>9,600</td><td>train + val, winning config</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="sec">
+      <div class="sec-num">§4</div>
+      <div class="sec-body">
+        <h2>Features and preprocessing as one serialised object</h2>
+        <p>
+          Eleven raw inputs feed the model: eight numeric (<code>age</code>,
+          <code>heart_rate</code>, <code>respiratory_rate</code>, <code>systolic_bp</code>,
+          <code>diastolic_bp</code>, <code>oxygen_saturation</code>, <code>temperature</code>,
+          <code>pain_level</code>), two categorical (<code>sex</code>,
+          <code>arrival_transport</code>), and the free-text <code>chief_complaint</code>.
+          Two derived numerics are computed deterministically from the raw vitals:
+          <strong>shock index</strong> (HR&nbsp;/&nbsp;SBP) and <strong>pulse pressure</strong>
+          (SBP&nbsp;&minus;&nbsp;DBP), both standard bedside danger signals.
+        </p>
+        <p>
+          Crucially, the preprocessing is not a script that runs before the model &mdash; it
+          <em>is</em> the model. <code>joblib.dump</code> serialises a single scikit-learn
+          <code>Pipeline</code> whose first step engineers features, whose second is a
+          <code>ColumnTransformer</code> doing imputation / scaling / one-hot / TF&#8209;IDF,
+          and whose third is the estimator. Inference calls <code>predict_proba</code> on that
+          one object. There is no second code path to keep in sync.
+        </p>
+
+        <figure>
+          <div class="figframe">
+            <svg viewBox="0 0 900 360" role="img" aria-label="The serialised artifact contains feature engineering, a column transformer with three branches, and the XGBoost estimator, all inside one dashed boundary.">
+              <!-- request -->
+              <rect x="20" y="150" width="120" height="60" rx="4" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="80" y="175" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor">validated</text>
+              <text x="80" y="192" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor">request</text>
+
+              <!-- dashed artifact boundary -->
+              <rect x="168" y="24" width="590" height="312" rx="8" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4"/>
+              <text x="180" y="16" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--accent-ink)" font-weight="600">one serialised Pipeline &mdash; train == serve</text>
+
+              <!-- FeatureEngineer -->
+              <rect x="188" y="130" width="150" height="100" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="263" y="152" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" font-weight="600">FeatureEngineer</text>
+              <g font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">
+                <text x="263" y="172" text-anchor="middle">clip to ranges &rarr; NaN</text>
+                <text x="263" y="188" text-anchor="middle">+ shock index</text>
+                <text x="263" y="204" text-anchor="middle">+ pulse pressure</text>
+                <text x="263" y="220" text-anchor="middle">normalise categoricals</text>
+              </g>
+
+              <!-- ColumnTransformer branches -->
+              <rect x="378" y="46" width="196" height="72" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="476" y="70" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" font-weight="600">numeric (10)</text>
+              <text x="476" y="90" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">median impute</text>
+              <text x="476" y="105" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">standard scale</text>
+
+              <rect x="378" y="128" width="196" height="72" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="476" y="152" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" font-weight="600">categorical (2)</text>
+              <text x="476" y="172" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">mode impute</text>
+              <text x="476" y="187" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">one-hot, ignore unknown</text>
+
+              <rect x="378" y="210" width="196" height="72" rx="4" fill="var(--surface)" stroke="var(--sB)" stroke-width="2"/>
+              <text x="476" y="234" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--sB)" font-weight="600">chief_complaint</text>
+              <text x="476" y="254" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">TF-IDF, 1&ndash;2 grams</text>
+              <text x="476" y="269" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">max 400, sublinear</text>
+
+              <!-- estimator -->
+              <rect x="612" y="128" width="128" height="104" rx="4" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="676" y="168" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" font-weight="600">XGBoost</text>
+              <text x="676" y="186" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">softprob, 400 trees</text>
+              <text x="676" y="201" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">depth 5, lr 0.05</text>
+
+              <!-- output -->
+              <rect x="784" y="150" width="96" height="60" rx="4" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="832" y="176" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">P(ESI)</text>
+              <text x="832" y="192" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">1&hellip;5</text>
+
+              <!-- arrows -->
+              <g stroke="currentColor" stroke-width="1.5" fill="none">
+                <path d="M140 180 H186"/>
+                <path d="M338 165 C 358 165, 360 82, 376 82"/>
+                <path d="M338 180 H376"/>
+                <path d="M338 195 C 358 195, 360 246, 376 246"/>
+                <path d="M574 82 C 594 82, 596 150, 610 150"/>
+                <path d="M574 164 H610"/>
+                <path d="M574 246 C 594 246, 596 190, 610 190"/>
+                <path d="M740 180 H782"/>
+              </g>
+              <g fill="currentColor">
+                <polygon points="186,180 178,176 178,184"/>
+                <polygon points="376,82 368,78 368,86"/>
+                <polygon points="376,180 368,176 368,184"/>
+                <polygon points="376,246 368,242 368,250"/>
+                <polygon points="610,150 602,146 602,154"/>
+                <polygon points="610,164 602,160 602,168"/>
+                <polygon points="610,190 602,186 602,194"/>
+                <polygon points="782,180 774,176 774,184"/>
+              </g>
+            </svg>
+          </div>
+          <figcaption>
+            <b>Figure 2. The artifact is the whole inference path.</b> Because feature
+            engineering, the fitted transforms, and the estimator travel together in one
+            <code>joblib</code> blob, train / serve skew is impossible by construction. Swapping
+            the text branch for embeddings, or the estimator for LightGBM, is a change inside
+            this box &mdash; the API and UI never see it.
+          </figcaption>
+        </figure>
+        <p>
+          Out-of-range physiological values are treated as recording errors: clipped to
+          <code>NaN</code> by the engineer, then imputed &mdash; never silently dropped.
+          Unknown categorical values fold to an <code>unknown</code> level;
+          <code>OneHotEncoder(handle_unknown="ignore")</code> means a novel arrival mode at
+          inference does not raise.
+        </p>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="sec">
+      <div class="sec-num">§5</div>
+      <div class="sec-body">
+        <h2>Model family and a selection procedure tied to clinical cost</h2>
+        <p>
+          Four estimator families are trained: logistic regression, a depth-limited decision
+          tree, a 300-tree random forest &mdash; the three scikit-learn families all with
+          balanced class weights &mdash; and an XGBoost classifier
+          (<code>multi:softprob</code>, 400 trees, depth 5, learning rate 0.05, subsample and
+          column-sample 0.9). Each is fit twice: on the structured features alone, and on the
+          structured features plus the TF&#8209;IDF chief complaint.
+        </p>
+        <p>
+          Selection <strong>never uses accuracy</strong>. On the ESI distribution, a model
+          that always says &ldquo;3&rdquo; scores well on accuracy and is clinically useless.
+          The criterion is <strong>macro&#8209;F1</strong> on the validation split, with
+          <strong>high&#8209;acuity (ESI&nbsp;1&ndash;2) recall</strong> as the tie-break.
+        </p>
+
+        <figure>
+          <div class="figframe">
+            <svg viewBox="0 0 900 440" role="img" aria-label="Grouped bar chart of validation macro-F1 for four model families, each without free text and with free text. XGBoost with free text is highest at 0.71 and marked selected.">
+              <!-- linear scale: value v -> y = 360 - v*400; baseline y=360 -->
+              <g font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">
+                <line x1="72" y1="40"  x2="856" y2="40"  stroke="var(--border)" stroke-width="1"/>
+                <line x1="72" y1="120" x2="856" y2="120" stroke="var(--border)" stroke-width="1"/>
+                <line x1="72" y1="200" x2="856" y2="200" stroke="var(--border)" stroke-width="1"/>
+                <line x1="72" y1="280" x2="856" y2="280" stroke="var(--border)" stroke-width="1"/>
+                <line x1="72" y1="360" x2="856" y2="360" stroke="currentColor" stroke-width="2"/>
+                <text x="62" y="44"  text-anchor="end">0.8</text>
+                <text x="62" y="124" text-anchor="end">0.6</text>
+                <text x="62" y="204" text-anchor="end">0.4</text>
+                <text x="62" y="284" text-anchor="end">0.2</text>
+                <text x="62" y="364" text-anchor="end">0.0</text>
+              </g>
+              <text x="26" y="200" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)" transform="rotate(-90 26 200)" text-anchor="middle">validation macro-F1</text>
+
+              <!-- Logistic .51 / .69 -->
+              <g>
+                <rect x="110" y="156" width="34" height="204" rx="3" fill="var(--sA)"/>
+                <rect x="150" y="84"  width="34" height="276" rx="3" fill="var(--sB)"/>
+                <text x="127" y="148" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">.51</text>
+                <text x="167" y="76"  text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">.69</text>
+                <text x="147" y="380" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">Logistic</text>
+              </g>
+              <!-- Decision tree .50 / .60 -->
+              <g>
+                <rect x="290" y="160" width="34" height="200" rx="3" fill="var(--sA)"/>
+                <rect x="330" y="120" width="34" height="240" rx="3" fill="var(--sB)"/>
+                <text x="307" y="152" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">.50</text>
+                <text x="347" y="112" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">.60</text>
+                <text x="327" y="380" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">Decision tree</text>
+              </g>
+              <!-- Random forest .56 / .69 -->
+              <g>
+                <rect x="470" y="136" width="34" height="224" rx="3" fill="var(--sA)"/>
+                <rect x="510" y="84"  width="34" height="276" rx="3" fill="var(--sB)"/>
+                <text x="487" y="128" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">.56</text>
+                <text x="527" y="76"  text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">.69</text>
+                <text x="507" y="380" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">Random forest</text>
+              </g>
+              <!-- XGBoost .54 / .71 — selected -->
+              <g>
+                <rect x="650" y="144" width="34" height="216" rx="3" fill="var(--sA)"/>
+                <rect x="690" y="76"  width="34" height="284" rx="3" fill="var(--sB)" stroke="currentColor" stroke-width="2"/>
+                <text x="667" y="136" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">.54</text>
+                <text x="707" y="68"  text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)" font-weight="600">.71</text>
+                <text x="687" y="380" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" font-weight="600">XGBoost</text>
+                <line x1="720" y1="72" x2="792" y2="46" stroke="currentColor" stroke-width="1"/>
+                <text x="796" y="44" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--accent-ink)" font-weight="600">selected</text>
+              </g>
+
+              <!-- legend -->
+              <g font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">
+                <rect x="110" y="406" width="12" height="12" rx="2" fill="var(--sA)"/>
+                <text x="130" y="416">structured features only</text>
+                <rect x="380" y="406" width="12" height="12" rx="2" fill="var(--sB)"/>
+                <text x="400" y="416">+ TF-IDF chief complaint</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption>
+            <b>Figure 3. Free text lifts every family; XGBoost lifts most.</b> Validation
+            macro-F1, four families &times; {structured, structured + text}. The chief
+            complaint is worth roughly +0.13 macro-F1 to the winner. XGBoost + text is refit
+            on train + val and taken to the test split.
+          </figcaption>
+        </figure>
+        <p>
+          After selection the winner is cloned, refit on <code>train + val</code> (9,600 rows),
+          and scored exactly once on the test split. Training refuses to overwrite an existing
+          model version without <code>--force</code>, writes
+          <code>{model_name, version, dataset, seed, split sizes, library versions, metrics,
+          comparisons, disclaimer}</code> alongside the <code>.joblib</code>, and updates
+          <code>models/latest.json</code> so the server picks up the new version on restart.
+        </p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="sec">
+      <div class="sec-num">§6</div>
+      <div class="sec-body">
+        <h2>The free-text component</h2>
+        <p>
+          The chief complaint enters as one <code>TfidfVectorizer</code> step: unigrams and
+          bigrams, sublinear term frequency, English stop words, <code>min_df = 2</code>,
+          capped at 400 features. It is a single pipeline node &mdash; replaceable with
+          embeddings without touching anything outside the artifact.
+        </p>
+        <p>
+          Its value is measured, not assumed. For the winning family the run records
+          structured-only versus structured-plus-text on the validation split:
+        </p>
+        <div class="tablewrap">
+          <table>
+            <caption>Text ablation &mdash; XGBoost, validation split (n = 2,400)</caption>
+            <thead>
+              <tr><th>Metric</th><th>Structured only</th><th>+ TF&#8209;IDF</th><th>&Delta;</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Accuracy</td><td>0.618</td><td>0.772</td><td>+0.154</td></tr>
+              <tr class="hi"><td>Macro&#8209;F1</td><td>0.543</td><td>0.709</td><td>+0.166</td></tr>
+              <tr><td>Weighted&#8209;F1</td><td>0.576</td><td>0.743</td><td>+0.167</td></tr>
+              <tr class="hi"><td>ESI&nbsp;1&ndash;2 recall</td><td>0.716</td><td>0.856</td><td>+0.140</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="lede">
+          On this dataset the complaint text nearly closes the gap between a coin-flip-ish
+          model and a usable one. That the signal exists is partly a property of the
+          synthetic generator, which puts real (if noisy) severity information in the phrase
+          lists; a MIMIC run would re-measure it.
+        </p>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="sec">
+      <div class="sec-num">§7</div>
+      <div class="sec-body">
+        <h2>Results on the held-out test split</h2>
+        <p>
+          All figures below are the winning XGBoost + text pipeline, refit on 9,600 rows and
+          scored once on 2,400 unseen synthetic rows.
+        </p>
+
+        <div class="tablewrap">
+          <table>
+            <caption>Headline metrics &mdash; triage_model_v1, test split</caption>
+            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>Accuracy</td><td>0.793</td></tr>
+              <tr><td>Macro precision / recall / F1</td><td>0.795 / 0.732 / 0.738</td></tr>
+              <tr><td>Weighted F1</td><td>0.768</td></tr>
+              <tr class="hi"><td>ESI&nbsp;1&ndash;2 &mdash; recall</td><td>0.846</td></tr>
+              <tr class="hi"><td>ESI&nbsp;1&ndash;2 &mdash; precision</td><td>0.943</td></tr>
+              <tr class="hi"><td>ESI&nbsp;1&ndash;2 &mdash; F1</td><td>0.892</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure>
+          <div class="figframe">
+            <svg viewBox="0 0 900 320" role="img" aria-label="Grouped bars of per-class precision and recall for ESI 1 to 5. Recall for ESI 4 is 0.25, far below the others.">
+              <g font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">
+                <line x1="66" y1="40"  x2="864" y2="40"  stroke="var(--border)"/>
+                <line x1="66" y1="110" x2="864" y2="110" stroke="var(--border)"/>
+                <line x1="66" y1="180" x2="864" y2="180" stroke="var(--border)"/>
+                <line x1="66" y1="250" x2="864" y2="250" stroke="currentColor" stroke-width="2"/>
+                <text x="58" y="44"  text-anchor="end">1.0</text>
+                <text x="58" y="114" text-anchor="end">0.66</text>
+                <text x="58" y="184" text-anchor="end">0.33</text>
+                <text x="58" y="254" text-anchor="end">0</text>
+              </g>
+              <!-- scale: 210px per 1.0, baseline 250 -->
+              <!-- ESI1 P.86 R.79 -->
+              <g>
+                <rect x="110" y="69.4"  width="30" height="180.6" rx="3" fill="var(--sA)"/>
+                <rect x="146" y="84.1"  width="30" height="165.9" rx="3" fill="var(--sB)"/>
+                <text x="125" y="61" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.86</text>
+                <text x="161" y="76" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.79</text>
+              </g>
+              <!-- ESI2 P.82 R.73 -->
+              <g>
+                <rect x="268" y="77.8" width="30" height="172.2" rx="3" fill="var(--sA)"/>
+                <rect x="304" y="96.7" width="30" height="153.3" rx="3" fill="var(--sB)"/>
+                <text x="283" y="70" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.82</text>
+                <text x="319" y="89" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.73</text>
+              </g>
+              <!-- ESI3 P.77 R.94 -->
+              <g>
+                <rect x="426" y="88.3" width="30" height="161.7" rx="3" fill="var(--sA)"/>
+                <rect x="462" y="52.6" width="30" height="197.4" rx="3" fill="var(--sB)"/>
+                <text x="441" y="80" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.77</text>
+                <text x="477" y="45" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.94</text>
+              </g>
+              <!-- ESI4 P.71 R.25 -->
+              <g>
+                <rect x="584" y="100.9" width="30" height="149.1" rx="3" fill="var(--sA)"/>
+                <rect x="620" y="197.5" width="30" height="52.5"  rx="3" fill="var(--sB)"/>
+                <text x="599" y="93"  text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.71</text>
+                <text x="635" y="190" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--caution)" font-weight="600">.25</text>
+              </g>
+              <!-- ESI5 P.81 R.95 -->
+              <g>
+                <rect x="742" y="79.9" width="30" height="170.1" rx="3" fill="var(--sA)"/>
+                <rect x="778" y="50.5" width="30" height="199.5" rx="3" fill="var(--sB)"/>
+                <text x="757" y="72" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.81</text>
+                <text x="793" y="43" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--ink-soft)">.95</text>
+              </g>
+
+              <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor" text-anchor="middle">
+                <text x="143" y="272">ESI 1</text>
+                <text x="301" y="272">ESI 2</text>
+                <text x="459" y="272">ESI 3</text>
+                <text x="617" y="272">ESI 4</text>
+                <text x="775" y="272">ESI 5</text>
+              </g>
+              <g font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">
+                <rect x="360" y="296" width="12" height="12" rx="2" fill="var(--sA)"/>
+                <text x="379" y="306">precision</text>
+                <rect x="500" y="296" width="12" height="12" rx="2" fill="var(--sB)"/>
+                <text x="519" y="306">recall</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption>
+            <b>Figure 4. Per-class precision and recall.</b> The model is strong on the ends
+            of the scale and on ESI&nbsp;3. <b>ESI&nbsp;4 recall is 0.25</b> &mdash; the model
+            routes most true ESI&nbsp;4 patients to 3 or 5. This is a known artefact of the
+            narrow synthetic ESI&nbsp;4 band (&sect;11) and the single most important thing a
+            reviewer should know before trusting a &ldquo;4&rdquo;.
+          </figcaption>
+        </figure>
+
+        <figure>
+          <div class="figframe">
+            <svg viewBox="0 0 520 430" role="img" aria-label="Five by five confusion matrix, rows are true ESI, columns predicted ESI, shaded by row proportion with raw counts. The diagonal dominates except row ESI 4, which spreads into columns 3 and 5.">
+              <text x="270" y="20" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" font-weight="600">Predicted ESI &rarr;</text>
+              <text x="18" y="235" transform="rotate(-90 18 235)" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" font-weight="600">True ESI &darr;</text>
+
+              <g font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--muted)" text-anchor="middle">
+                <text x="98"  y="44">1</text><text x="170" y="44">2</text><text x="242" y="44">3</text><text x="314" y="44">4</text><text x="386" y="44">5</text>
+              </g>
+              <g font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--muted)" text-anchor="end">
+                <text x="52" y="90">1</text><text x="52" y="162">2</text><text x="52" y="234">3</text><text x="52" y="306">4</text><text x="52" y="378">5</text>
+              </g>
+
+              <!-- cells: x0=62 y0=54, 72x72 -->
+              <g stroke="var(--surface)" stroke-width="2">
+                <!-- row1 -->
+                <rect x="62"  y="54"  width="72" height="72" fill="var(--heat)" fill-opacity="0.79"/>
+                <rect x="134" y="54"  width="72" height="72" fill="var(--heat)" fill-opacity="0.21"/>
+                <rect x="206" y="54"  width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="278" y="54"  width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="350" y="54"  width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <!-- row2 -->
+                <rect x="62"  y="126" width="72" height="72" fill="var(--heat)" fill-opacity="0.05"/>
+                <rect x="134" y="126" width="72" height="72" fill="var(--heat)" fill-opacity="0.73"/>
+                <rect x="206" y="126" width="72" height="72" fill="var(--heat)" fill-opacity="0.21"/>
+                <rect x="278" y="126" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="350" y="126" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <!-- row3 -->
+                <rect x="62"  y="198" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="134" y="198" width="72" height="72" fill="var(--heat)" fill-opacity="0.05"/>
+                <rect x="206" y="198" width="72" height="72" fill="var(--heat)" fill-opacity="0.82"/>
+                <rect x="278" y="198" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="350" y="198" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <!-- row4 -->
+                <rect x="62"  y="270" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="134" y="270" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="206" y="270" width="72" height="72" fill="var(--heat)" fill-opacity="0.49"/>
+                <rect x="278" y="270" width="72" height="72" fill="var(--heat)" fill-opacity="0.25"/>
+                <rect x="350" y="270" width="72" height="72" fill="var(--heat)" fill-opacity="0.26"/>
+                <!-- row5 -->
+                <rect x="62"  y="342" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="134" y="342" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="206" y="342" width="72" height="72" fill="var(--heat)" fill-opacity="0.04"/>
+                <rect x="278" y="342" width="72" height="72" fill="var(--heat)" fill-opacity="0.05"/>
+                <rect x="350" y="342" width="72" height="72" fill="var(--heat)" fill-opacity="0.82"/>
+              </g>
+              <g font-family="IBM Plex Mono, monospace" font-size="13" fill="currentColor" text-anchor="middle" font-variant-numeric="tabular-nums">
+                <text x="98" y="95">142</text><text x="170" y="95">38</text><text x="242" y="95">0</text><text x="314" y="95">0</text><text x="386" y="95">0</text>
+                <text x="98" y="167">22</text><text x="170" y="167">310</text><text x="242" y="167">89</text><text x="314" y="167">4</text><text x="386" y="167">0</text>
+                <text x="98" y="239">1</text><text x="170" y="239">29</text><text x="242" y="239">905</text><text x="314" y="239">12</text><text x="386" y="239">11</text>
+                <text x="98" y="311">0</text><text x="170" y="311">1</text><text x="242" y="311">173</text><text x="314" y="311">89</text><text x="386" y="311">93</text>
+                <text x="98" y="383">0</text><text x="170" y="383">0</text><text x="242" y="383">4</text><text x="314" y="383">21</text><text x="386" y="383">456</text>
+              </g>
+              <text x="440" y="90"  font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">n=180</text>
+              <text x="440" y="162" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">n=425</text>
+              <text x="440" y="234" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">n=958</text>
+              <text x="440" y="306" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">n=356</text>
+              <text x="440" y="378" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">n=481</text>
+            </svg>
+          </div>
+          <figcaption>
+            <b>Figure 5. Confusion matrix, test split.</b> Cell shade is the row proportion;
+            the label is the raw count. Errors are overwhelmingly &plusmn;1 level. The
+            off-diagonal mass in row&nbsp;ESI&nbsp;4 (173 &rarr; ESI&nbsp;3, 93 &rarr;
+            ESI&nbsp;5) is the model&rsquo;s weak spot; the top-left 2&times;2 block shows the
+            high-acuity group is rarely confused with anything below ESI&nbsp;3.
+          </figcaption>
+        </figure>
+
+        <div class="tablewrap">
+          <table>
+            <caption>Per-class detail &mdash; test split</caption>
+            <thead>
+              <tr><th>ESI</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1 &mdash; Resuscitation</td><td>0.861</td><td>0.789</td><td>0.823</td><td>180</td></tr>
+              <tr><td>2 &mdash; Emergent</td><td>0.820</td><td>0.729</td><td>0.772</td><td>425</td></tr>
+              <tr><td>3 &mdash; Urgent</td><td>0.773</td><td>0.945</td><td>0.850</td><td>958</td></tr>
+              <tr><td>4 &mdash; Less Urgent</td><td>0.706</td><td class="warn">0.250</td><td class="warn">0.369</td><td>356</td></tr>
+              <tr><td>5 &mdash; Non-Urgent</td><td>0.814</td><td>0.948</td><td>0.876</td><td>481</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="sec">
+      <div class="sec-num">§8</div>
+      <div class="sec-body">
+        <h2>Explanations that never break inference</h2>
+        <p>
+          Every prediction carries an explanation. For the ML predictor it is a SHAP
+          <code>TreeExplainer</code> (with a <code>LinearExplainer</code> fallback) run on the
+          transformed row for the predicted class. The many transformed columns &mdash; each
+          one-hot level, each TF&#8209;IDF term &mdash; are <strong>folded back onto their
+          source feature</strong>, so the output speaks in clinical terms: &ldquo;oxygen
+          saturation&rdquo;, &ldquo;chief complaint&rdquo;, &ldquo;shock index&rdquo;. The top
+          five drivers are returned as
+          <code>{feature, label, impact, importance}</code>, where <code>impact</code> is
+          <code>increased_acuity</code> / <code>decreased_acuity</code> / <code>neutral</code>,
+          interpreted against the fact that ESI is ordinal with 1 as most acute.
+        </p>
+        <div class="note">
+          <span class="lbl">Design rule</span>
+          Explanations are best-effort. Any failure &mdash; a SHAP version mismatch, an
+          unexpected shape &mdash; returns an empty <code>method:"none"</code> block. A
+          prediction is never lost because its explanation could not be produced. The
+          rule-based fallback emits the same structure with <code>method:"heuristic"</code>,
+          listing the thresholds that fired.
+        </div>
+        <p>
+          The disclaimer travels in the payload: the explanation <em>&ldquo;describes how the
+          model weighted the inputs for this prediction. It is not a clinical
+          assessment.&rdquo;</em>
+        </p>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="sec">
+      <div class="sec-num">§9</div>
+      <div class="sec-body">
+        <h2>Serving architecture and the safety envelope</h2>
+        <p>
+          The model is loaded <strong>once</strong>, at FastAPI startup, and held in memory by
+          a process-wide <code>TriageService</code>. A missing or corrupt artifact never
+          crashes the app: <code>build_predictor</code> falls back to a transparent rule-based
+          predictor (<code>auto</code> mode), or the endpoints return a controlled
+          <code>503</code> and manual triage simply continues.
+        </p>
+
+        <figure>
+          <div class="figframe">
+            <svg viewBox="0 0 900 380" role="img" aria-label="Request path from the triage screen through the FastAPI router and TriageService to one of two predictors, then to the response and the predictions table. A branch shows the fallback to a 503 and manual triage when no model is available.">
+              <!-- nodes -->
+              <rect x="24" y="150" width="132" height="64" rx="4" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="90" y="177" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor">/triage screen</text>
+              <text x="90" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">Next.js form</text>
+
+              <rect x="196" y="150" width="150" height="64" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="271" y="172" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">FastAPI router</text>
+              <text x="271" y="189" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">TriageInput: ranges,</text>
+              <text x="271" y="202" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">&ge;3 vitals, extra=forbid</text>
+
+              <rect x="386" y="150" width="150" height="64" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="461" y="172" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">TriageService</text>
+              <text x="461" y="189" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">singleton, loaded once</text>
+              <text x="461" y="202" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">at startup (lifespan)</text>
+
+              <rect x="580" y="96" width="164" height="58" rx="4" fill="var(--surface)" stroke="var(--sA)" stroke-width="2"/>
+              <text x="662" y="120" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--sA)" font-weight="600">ModelTriagePredictor</text>
+              <text x="662" y="137" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">xgboost pipeline + SHAP</text>
+
+              <rect x="580" y="166" width="164" height="58" rx="4" fill="var(--surface)" stroke="var(--sB)" stroke-width="2"/>
+              <text x="662" y="190" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--sB)" font-weight="600">HeuristicTriagePredictor</text>
+              <text x="662" y="207" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">rule-based, no training</text>
+
+              <rect x="580" y="250" width="164" height="52" rx="4" fill="var(--caution-bg)" stroke="var(--caution)" stroke-width="1.5"/>
+              <text x="662" y="272" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--caution)" font-weight="600">503 &mdash; unavailable</text>
+              <text x="662" y="288" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">&ldquo;continue manual triage&rdquo;</text>
+
+              <rect x="784" y="120" width="96" height="50" rx="4" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="832" y="141" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">payload +</text>
+              <text x="832" y="156" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">review flag</text>
+
+              <rect x="386" y="300" width="220" height="52" rx="4" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+              <text x="496" y="321" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">triage_predictions</text>
+              <text x="496" y="337" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--muted)">model cols immutable · human ESI added</text>
+
+              <!-- arrows -->
+              <g stroke="currentColor" stroke-width="1.5" fill="none">
+                <path d="M156 182 H194"/>
+                <path d="M346 182 H384"/>
+                <path d="M536 172 C 556 172, 558 125, 578 125"/>
+                <path d="M536 192 C 556 192, 558 195, 578 195"/>
+                <path d="M744 125 C 762 125, 764 140, 782 140"/>
+                <path d="M662 154 V 164" stroke-dasharray="3 3"/>
+                <path d="M662 224 V 248" stroke="var(--caution)" stroke-dasharray="4 3"/>
+                <path d="M461 214 V 298"/>
+                <path d="M832 170 C 832 250, 640 250, 608 300" />
+              </g>
+              <g fill="currentColor">
+                <polygon points="194,182 186,178 186,186"/>
+                <polygon points="384,182 376,178 376,186"/>
+                <polygon points="578,125 570,121 570,129"/>
+                <polygon points="578,195 570,191 570,199"/>
+                <polygon points="782,140 774,136 774,144"/>
+                <polygon points="461,298 457,290 465,290"/>
+              </g>
+              <polygon points="662,248 658,240 666,240" fill="var(--caution)"/>
+
+              <text x="24" y="40" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">every payload carries <tspan fill="var(--ink-soft)">requires_human_review = true</tspan> and the clinical notice; the model number never routes a patient</text>
+            </svg>
+          </div>
+          <figcaption>
+            <b>Figure 6. One request path, two predictors, one contract.</b> The API and UI
+            see only <code>model.type &isin; {ml, heuristic}</code>. <code>TRIAGE_MODEL_BACKEND</code>
+            forces the choice: <code>model</code> (require the artifact, fail loudly),
+            <code>heuristic</code> (always rules), or <code>auto</code> (artifact if loadable,
+            else rules). Persisting a prediction is a separate call; the human ESI is written
+            beside the model&rsquo;s, never over it.
+          </figcaption>
+        </figure>
+
+        <p>
+          Input validation is strict: <code>age</code> 0&ndash;120; each vital inside a
+          physiological range; categorical values normalised to fixed vocabularies; unknown
+          request fields rejected; and <strong>at least 3 of 6 core vitals required</strong>,
+          so a near-empty form cannot elicit a confident answer. Range or shape violations
+          return <code>422</code>. Raw patient data is never written to the application log &mdash;
+          only the failure class.
+        </p>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="sec">
+      <div class="sec-num">§10</div>
+      <div class="sec-body">
+        <h2>Contributions</h2>
+        <p class="lede">
+          The estimator is stock. What is deliberate here is the set of constraints that keep a
+          probabilistic model safe to put in front of a triage nurse, and reproducible enough
+          to retrain against real data without touching the product.
+        </p>
+        <ol>
+          <li>
+            <strong>The artifact is the entire inference path.</strong> Feature engineering,
+            imputation, encoding, and text vectorisation are pipeline steps inside the
+            serialised object, not preprocessing that has to be re-implemented at serving time.
+            Train / serve skew is ruled out by construction rather than by test.
+          </li>
+          <li>
+            <strong>One config module is the shared contract.</strong> Feature names,
+            physiological ranges, the ESI label map, and the minimum-vitals rule live in
+            <code>ml/config.py</code> and are imported by preprocessing, training, the Pydantic
+            API schema, and (mirrored) the UI. The model, the endpoint, and the form cannot
+            drift apart silently.
+          </li>
+          <li>
+            <strong>Selection is aligned to clinical cost, not accuracy.</strong> Macro&#8209;F1
+            with a high&#8209;acuity&#8209;recall tie&#8209;break; ESI&nbsp;1&ndash;2 carried
+            through as a separate one-vs-rest evaluation; accuracy reported but never optimised.
+          </li>
+          <li>
+            <strong>Structured and free text are fused in one swappable step,</strong> and the
+            text&rsquo;s contribution is measured every run (structured vs
+            structured&nbsp;+&nbsp;TF&#8209;IDF) and stored in the artifact metadata &mdash; an
+            ablation you cannot forget to do.
+          </li>
+          <li>
+            <strong>A transparent fallback shares the response contract.</strong> The
+            rule-based predictor is not machine learning and says so in its output, but it
+            satisfies the same interface, so the endpoint degrades to &ldquo;coarse but
+            working&rdquo; instead of &ldquo;down&rdquo;.
+          </li>
+          <li>
+            <strong>&ldquo;Decision support, never decision&rdquo; is enforced end to end.</strong>
+            <code>requires_human_review</code> is always true; the clinical notice is in every
+            payload; the model and human ESI are stored side by side with the model columns
+            immutable; and the UI visually subordinates the model card to the human decision.
+          </li>
+          <li>
+            <strong>Explainability that cannot break a prediction,</strong> and that reports in
+            clinical features by folding encoded columns back to their source, with impact
+            direction interpreted on the ordinal ESI scale.
+          </li>
+          <li>
+            <strong>Reproducible, hot-swappable versioning.</strong> Every artifact ships
+            metadata with seed, split sizes, library versions, and full model / text
+            comparisons; <code>models/latest.json</code> repoints the server; a new
+            <code>--model-version</code> requires no API or UI change. The synthetic generator
+            mirrors the real schema so the whole pipeline is runnable with no credentialed data.
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="sec">
+      <div class="sec-num">§11</div>
+      <div class="sec-body">
+        <h2>Limitations and ethics</h2>
+        <ul>
+          <li>
+            <strong>Synthetic training data.</strong> <code>triage_model_v1</code> is a
+            pipeline and integration demonstration. It must not be deployed for real triage.
+            Its metrics describe the synthetic generator as much as the model.
+          </li>
+          <li>
+            <strong>ESI&nbsp;4 is under-recalled (0.25).</strong> The synthetic ESI&nbsp;4 band
+            is narrow and sits between well-separated neighbours, so the model routes it to 3
+            or 5. A MIMIC-trained model would behave differently; until then, a predicted
+            &ldquo;4&rdquo; deserves extra scrutiny.
+          </li>
+          <li>
+            <strong>Probabilities are uncalibrated.</strong> <code>confidence</code> is simply
+            the top-class probability; it is not a calibrated likelihood and should not be
+            read as one.
+          </li>
+          <li>
+            <strong>No fairness or subgroup analysis, no temporal validation.</strong> A
+            clinical deployment would require both, plus prospective silent-mode evaluation.
+          </li>
+          <li>
+            <strong>A single snapshot.</strong> The model sees one triage assessment. It does
+            not reassess, and it has no notion of trajectory or deterioration.
+          </li>
+          <li>
+            <strong>Automation bias is a real risk of decision support.</strong> The mitigations
+            here &mdash; mandatory review, an un-authoritative UI, stored overrides, an explicit
+            notice &mdash; reduce but do not eliminate it. The stored model-vs-human record
+            exists partly so that drift toward rubber-stamping can be audited.
+          </li>
+          <li>
+            <strong>MIMIC caveat.</strong> <code>age</code> is absent from MIMIC&#8209;IV&#8209;ED
+            unless the <code>patients</code> table is also supplied; without it that feature is
+            imputed and contributes nothing.
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="sec">
+      <div class="sec-num">§12</div>
+      <div class="sec-body">
+        <h2>Reproducibility</h2>
+        <div class="tablewrap">
+          <table>
+            <caption>Environment &mdash; triage_model_v1</caption>
+            <thead><tr><th>Component</th><th>Version</th></tr></thead>
+            <tbody>
+              <tr><td>Python</td><td>3.13.5</td></tr>
+              <tr><td>scikit-learn</td><td>1.9.0</td></tr>
+              <tr><td>xgboost</td><td>3.4.1</td></tr>
+              <tr><td>numpy / pandas</td><td>2.5.2 / 3.0.5</td></tr>
+              <tr><td>Random seed</td><td>42</td></tr>
+              <tr><td>Training date</td><td>2026-09-03</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Regenerate the shipped model</h3>
+        <p><code>python -m ml.training.train --source synthetic --n-samples 16000 --model-version v1 --force</code></p>
+        <h3>Train against MIMIC&#8209;IV&#8209;ED</h3>
+        <p><code>python -m ml.training.train --source mimic --data-dir ml/data/mimic-iv-ed --model-version v2</code></p>
+        <h3>Score a saved artifact</h3>
+        <p><code>python -m ml.training.evaluate --model ml/models/triage_model_v2.joblib --source mimic --data-dir ml/data/mimic-iv-ed --out ml/models/triage_model_v2.metrics.json</code></p>
+        <p class="lede">
+          Machine-readable metrics and metadata are kept in git next to each model
+          (<code>*.metrics.json</code>, <code>*.metadata.json</code>); the <code>.joblib</code>
+          is regenerable and gitignored. Tests: <code>pytest ml/tests backend/tests</code>.
+        </p>
+      </div>
+    </section>
+
+    <div class="refs">
+      <h2 style="font-family:var(--mono);font-size:.78rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin-bottom:.6rem;">References &amp; sources</h2>
+      <ol>
+        <li>Gilboy N, Tanabe P, Travers D, Rosenau AM. <em>Emergency Severity Index (ESI): A Triage Tool for Emergency Department Care</em>, Implementation Handbook. Agency for Healthcare Research and Quality.</li>
+        <li>Johnson A, et al. <em>MIMIC&#8209;IV&#8209;ED</em> (v2.2). PhysioNet. <a href="https://physionet.org/content/mimic-iv-ed/">physionet.org/content/mimic-iv-ed</a>. Credentialed access.</li>
+        <li>Chen T, Guestrin C. <em>XGBoost: A Scalable Tree Boosting System</em>. KDD 2016.</li>
+        <li>Lundberg SM, Lee S-I. <em>A Unified Approach to Interpreting Model Predictions</em> (SHAP). NeurIPS 2017.</li>
+        <li>Pedregosa F, et al. <em>Scikit-learn: Machine Learning in Python</em>. JMLR 12 (2011).</li>
+        <li>Internal: <code>ml/README.md</code>, <code>ml/features.md</code>, <code>ml/models/triage_model_v1.metadata.json</code>.</li>
+      </ol>
+    </div>
+
+    <footer class="foot">
+      CareConnect emergency module · triage_model_v1 · report generated from the repository
+      ML package and shipped artifact metadata. Decision support only &mdash; not a medical
+      device, not for clinical use.
+    </footer>
+
+  </div>
+</div>

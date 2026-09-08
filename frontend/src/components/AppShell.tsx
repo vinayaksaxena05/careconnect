@@ -8,6 +8,7 @@ const links = [
   { href: "/dashboard", label: "Home" },
   { href: "/book", label: "Book visit" },
   { href: "/book?emergency=1", label: "Emergency" },
+  { href: "/triage", label: "Triage support" },
   { href: "/records", label: "Health records" },
   { href: "/profile", label: "Profile" },
 ];

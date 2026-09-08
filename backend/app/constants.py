@@ -74,4 +74,15 @@ ADMIN_TABLES = {
         "pk": "availability_id",
         "editable": ["provider_id", "date", "time_slot", "is_available"],
     },
+    "triage_predictions": {
+        "pk": "id",
+        # Model output columns are immutable; only the human-review fields
+        # can be edited from the admin console.
+        "editable": [
+            "human_final_esi",
+            "was_overridden",
+            "override_reason",
+            "requires_human_review",
+        ],
+    },
 }

@@ -8,3 +8,29 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets / environment
+.env
+.env.*
+!*.env.example
+!*.env.local.example
+
+# ML: never commit datasets (MIMIC-IV-ED is credentialed) or large artifacts.
+# Small metrics/metadata JSON next to a model IS committed as a record.
+ml/data/**
+!ml/data/*.py
+!ml/data/README.md
+!ml/data/.gitkeep
+ml/models/*.joblib
+ml/models/*.pkl
+ml/models/*.pickle
+.ipynb_checkpoints/
+ml/notebooks/**/outputs/

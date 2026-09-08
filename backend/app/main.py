@@ -1,7 +1,10 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.ml import triage_service
 from app.routers import (
     admin,
     analytics,
@@ -12,9 +15,20 @@ from app.routers import (
     profile,
     provider,
     requests,
+    triage,
 )
 
-app = FastAPI(title="CareConnect API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Load the triage model once at startup and hold it in memory. Failures are
+    # handled inside startup() and never prevent the app from serving.
+    triage_service.startup()
+    yield
+    triage_service.shutdown()
+
+
+app = FastAPI(title="CareConnect API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,3 +55,4 @@ app.include_router(payments.router)
 app.include_router(analytics.router)
 app.include_router(provider.router)
 app.include_router(admin.router)
+app.include_router(triage.router)

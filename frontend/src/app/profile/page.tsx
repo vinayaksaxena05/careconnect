@@ -21,6 +21,9 @@ type MedicalRecord = {
   record_date: string;
 };
 
+type PaymentRow = { payment_id: string; status: string };
+type FeedbackRow = { feedback_id: string; rating: number; comments: string | null };
+
 type RequestRow = {
   request_id: string;
   request_time: string;
@@ -29,8 +32,9 @@ type RequestRow = {
   eta_minutes: number | null;
   healthcare_providers: { name: string } | null;
   service_types: { service_name: string; base_price: number } | null;
-  payments: { payment_id: string; status: string } | null | unknown[];
-  rating_feedback: { feedback_id: string; rating: number; comments: string | null } | null | unknown[];
+  // Supabase embeds a to-one relation as an object or (sometimes) a one-element array.
+  payments: PaymentRow | PaymentRow[] | null;
+  rating_feedback: FeedbackRow | FeedbackRow[] | null;
 };
 
 function firstOrNull<T>(x: T | T[] | null | undefined): T | null {

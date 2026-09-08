@@ -5,3 +5,14 @@ python-dotenv>=1.0.0
 psycopg[binary]>=3.2.0
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
+
+# Triage ML inference (runtime only; training extras live in ml/requirements.txt)
+scikit-learn>=1.4
+pandas>=2.2
+numpy>=1.26
+xgboost>=2.0
+shap>=0.44
+joblib>=1.3
+
+# Tests
+pytest>=8.0
