@@ -8,7 +8,7 @@ Emergency Severity Index (ESI 1–5) from the initial triage assessment.
 
 ---
 
-## 1. Problem statement
+## 1.Problem statement
 
 Emergency triage assigns an ESI level under time pressure, from one nurse's judgement, with no
 consistent second opinion and no record of why a level was chosen. Under-triage of ESI 1–2
